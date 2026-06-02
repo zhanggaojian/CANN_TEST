@@ -21,6 +21,8 @@ using Ops::Base::GetUbBlockSize;
 constexpr uint32_t WS_SYS_SIZE = 0U;
 constexpr int64_t TYPE_SIZE = 4;
 constexpr int64_t MIN_SPLIT_THRESHOLD = 1024;
+constexpr int32_t BUFFER_NUM = 2;
+constexpr int32_t QUEUE_NUM = 2;
 
 static const gert::Shape g_vec_1_shape = {1};
 
@@ -75,9 +77,14 @@ static ge::graphStatus CeluTilingFunc(gert::TilingContext* context)
     if (tiling->totalNum <= 0) {
         return ge::GRAPH_FAILED;
     }
-    const int64_t usedCoreNum = std::max<int64_t>(1, std::min<int64_t>(coreNum, tiling->totalNum));
-    tiling->blockFactor = tiling->totalNum / usedCoreNum; //每个core上处理的元素个数
-    tiling->ubFactor = std::min<uint64_t>(ubSize, tiling->blockFactor); //每个core上ub的处理的元素个数
+    constexpr int64_t ALIGN_NUM = 32 / TYPE_SIZE;
+    int64_t usedCoreNum = std::max<int64_t>(1, std::min<int64_t>(coreNum, tiling->totalNum));
+    tiling->blockFactor = CeilDiv(tiling->totalNum, usedCoreNum); //每个core上处理的元素个数
+    tiling->blockFactor = CeilAlign(tiling->blockFactor, ALIGN_NUM);
+    usedCoreNum = CeilDiv(tiling->totalNum, tiling->blockFactor);
+    int64_t ubNum = static_cast<int64_t>(ubSize / (BUFFER_NUM * QUEUE_NUM) / TYPE_SIZE);
+    ubNum = FloorAlign(ubNum, GetUbBlockSize() / TYPE_SIZE);
+    tiling->ubFactor = std::min<int64_t>(std::max<int64_t>(1, ubNum), tiling->blockFactor); //每个core上ub的处理的元素个数
     tiling->lastBlockFactor = tiling->totalNum - (usedCoreNum - 1) * tiling->blockFactor;
     float alpha = 1.0f;
     const gert::RuntimeAttrs *attrs = context->GetAttrs();
